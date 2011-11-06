@@ -40,7 +40,6 @@ $moudle = isset($_GET ['module']) ?  strtolower($_GET ['module']) : (isset($_POS
 $method = isset($_GET ['method']) ?  $_GET ['method'] : (isset($_POST ['method']) ? strtolower($_POST ['method']) : 'df');
 
 /* Run the app. */
-echo $moudle, $method;
 $app->loadModule($moudle, $method);
 
 /* Flush the buffer. */

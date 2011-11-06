@@ -2,26 +2,26 @@
 
 function update_contacts_to_local($contacts){
 	foreach ($contacts as $contact){
+		//$updated = add_time_offset($contact['updated'],1);
+		
+		
+		$name = $contact['name'];
+		$emailAddress = $contact['emailAddress'];
+		$orgName = $contact['orgName'];
+		$orgTitle = $contact['orgTitle'];
+		$website   = $contact['website'];
+		$phoneNumber = $contact['phoneNumber'];
+		$googleID = $contact['googleID'];
+		$updated = date("Y-m-d H:i:s",strtotime($contact['updated']));
+
 		if ($contact['action']=='delete'){
 			$id = $contact['id'];
 			mysql_query("UPDATE contacts 
 						SET is_deleted = 1, 
-							updated = NOW()
+							updated = '$updated'
 						WHERE id = $id;");
 		} elseif ($contact['action']=='update'){
 			$id = $contact['id'];
-			$name = $contact['name'];
-			$emailAddress = $contact['emailAddress'];
-			$orgName = $contact['orgName'];
-			$orgTitle = $contact['orgTitle'];
-			$website   = $contact['website'];
-			$phoneNumber = $contact['phoneNumber'];
-			
-			$googleID = $contact['googleID'];
-
-			$updated = add_time_offset($contact[$i]['updated'],1);
-
-
 			mysql_query("UPDATE contacts 
 						SET name = '$name', 
 							emailAddress = '$emailAddress', 
@@ -30,25 +30,30 @@ function update_contacts_to_local($contacts){
 							website = '$website', 
 							phoneNumber = '$phoneNumber', 
 							googleID = '$googleID', 
-							updated = 'updated' 
+							updated = '$updated' 
 						WHERE id = $id");
-			
+			echo "UPDATE contacts 
+						SET name = '$name', 
+							emailAddress = '$emailAddress', 
+							orgName = '$orgName', 
+							orgTitle = '$orgTitle', 
+							website = '$website', 
+							phoneNumber = '$phoneNumber', 
+							googleID = '$googleID', 
+							updated = '$updated' 
+						WHERE id = $id";
 		} elseif ($contact['action']=='insert'){
 			$userID = $contact['userID'];
-			$name = $contact['name'];
-			$emailAddress = $contact['emailAddress'];
-			$orgName = $contact['orgName'];
-			$orgTitle = $contact['orgTitle'];
-			$website   = $contact['website'];
-			$phoneNumber = $contact['phoneNumber'];
-			
-			$googleID = $contact['googleID'];
-
 			mysql_query("INSERT INTO contacts 
 						(userID, name, emailAddress, orgName, orgTitle, website, phoneNumber, googleID, updated) 
 						VALUES 
-						($userID,'$name','$emailAddress','$orgName','$orgTitle','$website','$phoneNumber','$googleID', NOW());");
+						($userID,'$name','$emailAddress','$orgName','$orgTitle','$website','$phoneNumber','$googleID', '$updated');");
+			echo "INSERT INTO contacts 
+						(userID, name, emailAddress, orgName, orgTitle, website, phoneNumber, googleID, updated) 
+						VALUES 
+						($userID,'$name','$emailAddress','$orgName','$orgTitle','$website','$phoneNumber','$googleID', '$updated');";
 		}
+		echo mysql_error();
 	}
 }
 
@@ -64,8 +69,8 @@ function get_contacts_from_db($userID, $type=null) {
 	if ($type == "active") {
 		$sql .= "AND is_deleted=0";
 	} else if ($type == "updated") {
-		$updated = add_time_offset(user::getUpdatedTimestamp("contacts"),1);
-		$sql .= " AND updated>='$updated'";
+		$updated = user::getUpdatedTimestamp("contacts");
+		$sql .= " AND updated>'$updated'";
 	}
 	$result = mysql_query($sql);
   if($result != false) {
@@ -98,9 +103,9 @@ function update_google_id_time_to_local($arr,$module) {
 }
 
 function find_item_by_google_id($googleID, $module){
-	$result = mysql_query("SELECT * FROM {$module} WHERE googleID='$googleID'");
+	$result = mysql_query("SELECT id FROM {$module} WHERE googleID='$googleID'");
 	while($res = mysql_fetch_array($result)) {
-		return true;
+		return $res["id"];
 	}
 	return false;
 }
@@ -113,7 +118,7 @@ function update_google_sync_time($time,$module){
 	} else if ($module=="events"){
 		$time_str = "'1970-01-01 00:00:01','1970-01-01 00:00:01','$time'";
 	}
-	mysql_query("INSERT google_sync_time ({$_SESSION['userId']}, contacts, tasks, events) values (1,{$time_str}) ON DUPLICATE KEY UPDATE contacts=$time;");
+	mysql_query("INSERT google_sync_time (userID, contacts, tasks, events) values (1,{$time_str}) ON DUPLICATE KEY UPDATE {$module}='$time';");
 }
 
 //check if contact exists has googleID
@@ -210,7 +215,6 @@ function update_events_to_local($events){
 						(userID, title, location, guest, description, startTime, endTime, owner, googleID, updated) 
 						VALUES 
 						($userID,'$title','$location','$guest','$description','$startTime','$endTime','$owner','$googleID', NOW());");
-			echo mysql_error();
 		}
 	}
 }
@@ -283,7 +287,7 @@ function update_tasks_to_local($arr) {
 			mysql_query("INSERT INTO tasks 
 									(userID, title, description, date, googleID, status, updated) 
 									VALUES ($userID,'$title','$description','$date','$googleID', '$status','$updated');");
-			echo mysql_error();
+			
 		} else if ($arr[$i]['action']=='update'){
 			$id = $arr[$i]['id'];
 			$userID = $arr[$i]['userID'];
@@ -301,13 +305,13 @@ function update_tasks_to_local($arr) {
 							status = '$status',
 							updated = '$updated'
 						WHERE id = '$id'");
-						echo mysql_error();
+						
 		} else if ($arr[$i]['action']=='delete') {
 			$id = $arr[$i]['id'];
 			mysql_query("UPDATE tasks
 						SET is_deleted = 1 
 						WHERE id = '$id'");
-						echo mysql_error();
+						
 		}
 	}
 	return true;
