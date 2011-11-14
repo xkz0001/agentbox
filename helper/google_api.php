@@ -1,4 +1,147 @@
 <?php
+
+/************************full sync function***********************/
+/********************************************************************/
+
+
+//get items which need to insert/update/delete to google
+
+function get_items_to_google($google_items, $local_items, & $delete_local_items){
+	$items = array();
+	$delete_local_items = array();
+	foreach($local_items as $local_item){
+		//if local item is deleted and there is a google item with matched google id.
+		//the item need to be deleted.
+		if ($local_item['is_deleted']) {
+			if(recursive_array_search($google_items,$local_item['googleID'],'googleID') !== false) {
+				$local_item['action'] = 'delete';
+				$items[] = $local_item;
+			}
+		} else {
+			//if local item googleid is empty 
+			if (strlen($local_item['googleID'])==0){
+				$local_item['action'] = 'insert';
+				$items[] = $local_item;
+			} else {
+				$key = recursive_array_search($google_items,$local_item['googleID'],'googleID'); 
+				if( $key=== false){
+					$local_item['action'] = 'delete';
+					$delete_local_items[] = $local_item;
+				} else {
+					//if local item is find in google items and it is newer than google one, it need to be updated
+					if (latest_updated($local_item['updated'], $google_items[$key]['updated'])=="local") {
+						//echo "local:",$local_item['updated'],"google:",$google_items[$key]['updated'],"<br>";
+						$local_item['action'] = 'update';
+						$items[]=$local_item;
+					}
+				}
+			}
+		}
+	}
+	return $items;
+}
+
+//get item which need to update/insert to local
+function get_items_to_local($google_items,$local_items) {
+	$items = array();
+	foreach($google_items as $google_item){		
+		//if local item is not find in google items, it need to be inserted
+		$key = recursive_array_search($local_items,$google_item['googleID'],'googleID'); 
+		if( $key=== false){
+			$google_item['action'] = 'insert';
+			$items[] = $google_item;
+		} else {
+			//if local item is find in google items and it is newer than google one, it need to be updated
+			if (latest_updated($local_items[$key]['updated'], $google_item['updated'])=="google") {
+				$google_item['action'] = 'update';
+				$google_item['id'] = $local_items[$key]['id'];
+				$items[]=$google_item;
+			}
+		}
+	}
+	return $items;
+}
+
+/************************updated sync function***********************/
+/********************************************************************/
+
+
+function get_updated_items_to_google($google_items, $local_items){
+	$items = array();
+	$delete_local_items = array();
+	foreach($local_items as $local_item){
+		//if local item is deleted and there is a google id, delete
+		if ($local_item['is_deleted'] && strlen($local_item['googleID'])!=0 ) {
+			$local_item['action'] = 'delete';
+			$items[] = $local_item;			
+		} else {
+			//if local item googleid is empty, insert
+			if (strlen($local_item['googleID'])==0){
+				$local_item['action'] = 'insert';
+				$items[] = $local_item;
+			} else {
+				$key = recursive_array_search($google_items,$local_item['googleID'],'googleID');
+				//if no match google id, update
+				if( $key=== false){
+					$local_item['action'] = 'update';
+					$items[]=$local_item;
+				} else {
+					//if local item is find in google items and it is newer than google one, it need to be updated
+					if (latest_updated($local_item['updated'], $google_items[$key]['updated'])=="local") {
+						//echo "local:",$local_item['updated'],"google:",$google_items[$key]['updated'],"<br>";
+						$local_item['action'] = 'update';
+						$items[]=$local_item;
+					}
+				}				
+			}
+		}
+	}
+	return $items;
+}
+
+
+//get item which need to update/insert to local
+function get_updated_items_to_local($google_items,$local_items, $module) {
+	$items = array();
+
+	foreach($google_items as $google_item){		
+		//look for local item with google item id
+		$matched_local = find_item_by_google_id($google_item['googleID'],$module);
+		if ($matched_local) {
+			//delete item from local if google item status is deleted
+			if ($google_item['is_deleted']) {
+				$google_item['action'] = 'delete';
+				$google_item['id'] = $matched_local;
+				$items[] = $google_item;	
+			} else {
+				//if both updated, compare timestamp, if not, the google item will update local
+				$key = recursive_array_search($local_items,$google_item['googleID'],'googleID'); 
+				if( $key=== false){
+					$google_item['action'] = 'update';
+					$google_item['id'] = $matched_local;
+					$items[] = $google_item;
+				} else {
+					//if local item is find in google items and it is newer than google one, it need to be updated
+					if (latest_updated($local_items[$key]['updated'], $google_item['updated'])=="google") {
+						$google_item['action'] = 'update';
+						$google_item['id'] = $local_items[$key]['id'];
+						$items[]=$google_item;
+					}
+				}
+			}
+		} else {
+			if ($google_item['is_deleted'] == false ) {
+				$google_item['action'] = 'insert';
+				$items[] = $google_item;
+			}
+		}
+	}
+	return $items;
+}
+
+
+
+
 /*
     for full google service name list, 
     check http://code.google.com/apis/gdata/faq.html#clientlogin
@@ -17,9 +160,7 @@ function get_contacts_from_google($uId, $type) {
 		$query->maxResults = 0;
 		
 		//google only keep tombstone for 30 days. so you still need use "full" type to sync deleted contacts.
-		echo $type;
 		if ($type=="updated"){
-			echo add_time_offset(user::getUpdatedTimestamp('contacts'),2);
 			$query->updatedMin = add_time_offset(user::getUpdatedTimestamp('contacts'),2);
 			$query->setParam('showdeleted', 'true');
 		}
@@ -37,7 +178,7 @@ function get_contacts_from_google($uId, $type) {
 			$re['userID']=$uId;//TODO get from session
 			$re['googleID'] = $entry->id->text;
 			$xml = simplexml_load_string($entry->getXML());
-			if(isset($xml->deleted)) { $deleted = "true"; } else { $deleted = "false"; } 
+			if(isset($xml->deleted)) { $deleted = true; } else { $deleted = false; } 
 			$re['is_deleted']=$deleted;
 			$re['name'] = (string) $entry->title;
 			$re['orgName'] = (string) $xml->organization->orgName; 
@@ -131,6 +272,7 @@ function create_contact_to_google($contact,$gdata){
 
 function update_contact_to_google($contact, $gdata){
 	try {
+		
 		$query = new Zend_Gdata_Query($contact['googleID']);
 
 		$entry = $gdata->getEntry($query);
@@ -189,7 +331,7 @@ function delete_contact_to_google($contact,$gdata){
 	}
 }
 
-function update_contacts_to_google($contacts) {
+function sync_contacts_to_google($contacts) {
 	try {
 		$gdata = user::getZendServiceClient('cp');	
 		foreach($contacts as $contact){
@@ -211,27 +353,66 @@ function update_contacts_to_google($contacts) {
 /*
 //*******************Calendar****************************
 */
-function get_events_from_google($uId) {
+function get_events_from_google($uId, $type) {
 	try {
 		//for full google service name list, 
 		//check http://code.google.com/apis/gdata/faq.html#clientlogin
 		//cl: calendar
 		$gdata = user::getZendServiceClient('cl');
-		$eventFeed = $gdata->getCalendarEventFeed();
+
+		$query = $gdata->newEventQuery();
+		$query->setUser('default');
+		$query->setVisibility('private');
+		$query->setProjection('full');
+		$query->setOrderby('starttime');
+		$query->setSortOrder('ascending');
+
+		
+		//google only keep tombstone for 30 days. so you still need use "full" type to sync deleted contacts.
+		if ($type=="updated"){
+			$query->updatedMin = add_time_offset(user::getUpdatedTimestamp('events'),2);
+			$query->setParam('showdeleted', 'true');
+		}
+
+		$eventFeed = $gdata->getCalendarEventFeed($query);
 		$results = array();
 		foreach ($eventFeed as $event) {
 
 			$googleID = $event->id->text;
+			if(strpos($event->eventstatus->value,"canceled")===false) { $deleted = false; } else { $deleted = true; } 
+			$re['is_deleted']=$deleted;
 			$re['userID']=$uId;
 			$re['googleID'] = $googleID;
 			$re['title'] = $event->title->text;
 			$re['description'] = $event->content->text;
 			$re['updated'] = $event->updated->text;
-			foreach ($event->when as $when) {
-				$re['startTime'] = $when->startTime;
-				$re['endTime'] = $when->endTime;
-				break;
+			
+			if ($event->when){
+				foreach ($event->when as $when) {
+					$re['startTime'] = $when->startTime;
+					$re['endTime'] = $when->endTime;
+					break;
+				}
+			} elseif ($event->recurrence ){
+				$arr = explode("\n", $event->recurrence->text);
+				foreach ($arr as $when){
+					if (strpos($when,"DTSTART")!==false){
+						$time_arr=explode(':',$when);
+						$re['startTime'] = $time_arr[1];
+					}
+					if (strpos($when,"DTEND")!==false){
+						$time_arr=explode(':',$when);
+						$re['endTime'] = $time_arr[1];
+					}
+				}
+				foreach ($event->recurrence as $when) {
+					
+					$re['startTime'] = $when->startTime;
+					$re['endTime'] = $when->endTime;
+					break;
+				}
 			}
+
 			$guest = array();
 			foreach($event->who as $who){
 				$guest[] = $who->getEmail();
@@ -251,7 +432,7 @@ function get_events_from_google($uId) {
 }
 
 
-function update_events_to_google($events) {
+function sync_events_to_google($events) {
 	try {
 		$gdata = user::getZendServiceClient('cl');	
 		foreach($events as $event){
@@ -343,7 +524,7 @@ function update_event_to_google($event,$gdata) {
 			$eventExisting->when = array($when);	
 			$eventExisting->save();
 			$result = $gdata->getCalendarEventEntry($query);
-			$event['updated'] = add_time_offset($result->updated->text,1);
+			$event['updated'] = $result->updated->text;
 			update_google_id_time_to_local($event,'events');
 		} else {
 			echo("no matching event find");
@@ -391,13 +572,20 @@ function array_diff_googleid($array1,$array2) {
 */
 
 
-function get_tasks_from_google($uId,$ts){
+function get_tasks_from_google($uId,$ts,$type){
 	$lists = $ts->tasklists->listTasklists();
 	$tresults = array();
 	foreach ($lists['items'] as $list) {
-		$tasks = $ts->tasks->listTasks($list['id']);
+		$query = array();
+		if ($type=="updated"){
+			$query = array("showDeleted"=>true, "updatedMin"=>add_time_offset(user::getUpdatedTimestamp('tasks'),2));
+		}
+		$tasks = $ts->tasks->listTasks($list['id'], $query);
 		if (isset($tasks['items'])){
 			foreach ($tasks['items'] as $task) {
+				
+				if(isset($task['deleted'])) { $deleted = true; } else { $deleted = false; } 
+				$re['is_deleted']=$deleted;
 				$re['googleID'] = $task['id'];
 				$re['userID']=$uId;
 				$re['title'] = $task['title'];
@@ -429,7 +617,7 @@ function create_task_to_google($task,$ts_list, $ts){
 
 	$result=$ts->tasks->insert($ts_list['id'], $new_task);
 	$task['googleID'] = $result['id'];
-	$task['updated'] = add_time_offset($result['updated'],1);
+	$task['updated'] = $result['updated'];
 	update_google_id_time_to_local($task,"tasks");
 }
 
@@ -443,12 +631,12 @@ function update_task_to_google($task,$ts_list, $ts){
 	}
 	$new_task->setStatus(($task['status']=="completed")? "completed":"needsAction");
 	$new_result=$ts->tasks->update($ts_list['id'], $task['id'], $new_task);
-	$task['updated'] = add_time_offset($new_result['updated'],1);
+	$task['updated'] = $new_result['updated'];
 	update_google_id_time_to_local($task,"tasks");
 
 }
 
-function update_tasks_to_google($ts,$tasks){
+function sync_tasks_to_google($ts,$tasks){
 	$lists = $ts->tasklists->listTasklists();
 	foreach ($lists['items'] as $list) {
 		foreach($tasks as $task){
@@ -465,140 +653,6 @@ function update_tasks_to_google($ts,$tasks){
 
 
 
-
-/************************function***********************/
-
-
-//get items which need to insert/update/delete to google
-
-function get_items_to_google($google_items, $local_items, & $delete_local_items){
-	$items = array();
-	$delete_local_items = array();
-	foreach($local_items as $local_item){
-		//if local item is deleted and there is a google item with matched google id.
-		//the item need to be deleted.
-		if ($local_item['is_deleted']) {
-			if(recursive_array_search($google_items,$local_item['googleID'],'googleID') !== false) {
-				$local_item['action'] = 'delete';
-				$items[] = $local_item;
-			}
-		} else {
-			//if local item googleid is empty 
-			if (strlen($local_item['googleID'])==0){
-				$local_item['action'] = 'insert';
-				$items[] = $local_item;
-			} else {
-				$key = recursive_array_search($google_items,$local_item['googleID'],'googleID'); 
-				if( $key=== false){
-					$local_item['action'] = 'delete';
-					$delete_local_items[] = $local_item;
-				} else {
-					//if local item is find in google items and it is newer than google one, it need to be updated
-					if (latest_updated($local_item['updated'], $google_items[$key]['updated'])=="local") {
-						//echo "local:",$local_item['updated'],"google:",$google_items[$key]['updated'],"<br>";
-						$local_item['action'] = 'update';
-						$items[]=$local_item;
-					}
-				}
-			}
-		}
-	}
-	return $items;
-}
-
-function get_updated_items_to_google($google_items, $local_items){
-	$items = array();
-	$delete_local_items = array();
-	foreach($local_items as $local_item){
-		//if local item is deleted and there is a google id, delete
-		if ($local_item['is_deleted'] && strlen($local_item['googleID'])!=0 ) {
-			$local_item['action'] = 'delete';
-			$items[] = $local_item;			
-		} else {
-			//if local item googleid is empty, insert
-			if (strlen($local_item['googleID'])==0){
-				$local_item['action'] = 'insert';
-				$items[] = $local_item;
-			} else {
-				$key = recursive_array_search($google_items,$local_item['googleID'],'googleID');
-				//if no match google id, update
-				if( $key=== false){
-					$local_item['action'] = 'udpate';
-					$items[]=$local_item;
-				} else {
-					//if local item is find in google items and it is newer than google one, it need to be updated
-					if (latest_updated($local_item['updated'], $google_items[$key]['updated'])=="local") {
-						//echo "local:",$local_item['updated'],"google:",$google_items[$key]['updated'],"<br>";
-						$local_item['action'] = 'update';
-						$items[]=$local_item;
-					}
-				}				
-			}
-		}
-	}
-	return $items;
-}
-
-
-//get item which need to update/insert to local
-function get_items_to_local($google_items,$local_items) {
-	$items = array();
-	foreach($google_items as $google_item){		
-		//if local item is not find in google items, it need to be inserted
-		$key = recursive_array_search($local_items,$google_item['googleID'],'googleID'); 
-		if( $key=== false){
-			$google_item['action'] = 'insert';
-			$items[] = $google_item;
-		} else {
-			//if local item is find in google items and it is newer than google one, it need to be updated
-			if (latest_updated($local_items[$key]['updated'], $google_item['updated'])=="google") {
-				$google_item['action'] = 'update';
-				$google_item['id'] = $local_items[$key]['id'];
-				$items[]=$google_item;
-			}
-		}
-	}
-	return $items;
-}
-
-//get item which need to update/insert to local
-function get_updated_items_to_local($google_items,$local_items, $module) {
-	$items = array();
-
-	foreach($google_items as $google_item){		
-		//look for local item with google item id
-		$matched_local = find_item_by_google_id($google_item['googleID'],$module);
-		if ($matched_local) {
-			//delete item from local if google item status is deleted
-			if ($google_item['is_deleted'] == "true" ) {
-				$google_item['action'] = 'delete';
-				$google_item['id'] = $matched_local;
-				$items[] = $google_item;	
-			} else {
-				//if both updated, compare timestamp, if not, the google item will update local
-				$key = recursive_array_search($local_items,$google_item['googleID'],'googleID'); 
-				if( $key=== false){
-					$google_item['action'] = 'update';
-					$google_item['id'] = $matched_local;
-					$items[] = $google_item;
-				} else {
-					//if local item is find in google items and it is newer than google one, it need to be updated
-					if (latest_updated($local_items[$key]['updated'], $google_item['updated'])=="google") {
-						$google_item['action'] = 'update';
-						$google_item['id'] = $local_items[$key]['id'];
-						$items[]=$google_item;
-					}
-				}
-			}
-		} else {
-			if ($google_item['is_deleted'] == "false" ) {
-				$google_item['action'] = 'insert';
-				$items[] = $google_item;
-			}
-		}
-	}
-	return $items;
-}
 
 /*
 for find matching google id
@@ -635,7 +689,7 @@ function add_time_offset($timestr,$type=1){
 	} else {
 		$d = strtotime($timestr)-11*60*60;
 	}
-	return date("Y-m-d H:i:s",$d);
+	return date("Y-m-d\TH:i:s.000\Z",$d);
 	
 }
 

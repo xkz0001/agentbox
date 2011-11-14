@@ -5,7 +5,7 @@
  */
 
 require_once 'framework/control.class.php';
-require_once 'modules/User.class.php';
+require_once 'modules/user.class.php';
 
 class documentlibrary extends control {
 	private $pId;

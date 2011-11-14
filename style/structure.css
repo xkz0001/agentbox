@@ -1837,10 +1837,12 @@ div.entry {
   border: 2px solid; 
   margin: 10px;
   padding: 5px;
+  border-color: green;
+  background-color: #f0fff0;
 }
-div.google{
-  border-color:green;
-	background-color:#f0fff0;
+div.deleted{
+  border-color:black;
+  background-color: #C0C0C0;
 }
 
 div.folder{
